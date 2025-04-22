@@ -1,11 +1,16 @@
-use std::sync::Arc;
+mod camera;
 
+use std::{num::NonZeroU32, sync::Arc};
+
+use bytemuck::{Pod, Zeroable};
+use camera::Camera;
 use pollster::FutureExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    Backends, Buffer, BufferUsages, Device, DeviceDescriptor, Features, Instance,
-    InstanceDescriptor, Limits, PowerPreference, Queue, RenderPipeline, RenderPipelineDescriptor,
-    RequestAdapterOptionsBase, Surface, SurfaceConfiguration,
+    Backends, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
+    BufferUsages, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
+    PowerPreference, Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptionsBase,
+    ShaderStages, Surface, SurfaceConfiguration,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -17,7 +22,17 @@ pub struct Renderer<'surface, 'window: 'surface> {
     size: PhysicalSize<u32>,
     window: &'window Window,
 
+    camera: Camera,
+    shader_ctx_buffer: Arc<Buffer>,
+    shader_ctx_bind_group: BindGroup,
+
     render_pipeline: RenderPipeline,
+}
+
+#[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct ShaderContext {
+    view_projection: [f32; 16],
 }
 
 impl<'surface, 'window> Renderer<'surface, 'window> {
@@ -77,12 +92,44 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/standard.wgsl"));
 
+        let shader_ctx_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&shader_ctx_bind_group_layout],
                 push_constant_ranges: &[],
             });
+
+        let camera = Camera::default();
+
+        let shader_ctx_buffer = Arc::new(device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&[ShaderContext::default()]),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        }));
+
+        let shader_ctx_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &shader_ctx_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: shader_ctx_buffer.as_entire_binding(),
+            }],
+            label: Some("camera_bind_group"),
+        });
 
         let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -131,6 +178,10 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             window,
 
             render_pipeline,
+
+            camera,
+            shader_ctx_buffer,
+            shader_ctx_bind_group,
         }
     }
 
@@ -139,6 +190,7 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
+            self.camera.aspect_ratio = new_size.width as f32 / new_size.height as f32;
             self.surface.configure(&self.device, &self.config);
         }
     }
@@ -146,9 +198,19 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
     pub fn render(&mut self) {
         let output = self.surface.get_current_texture().unwrap();
 
+        let shader_ctx = ShaderContext {
+            view_projection: self.camera.bake().to_cols_array(),
+        };
+
+        let shader_ctx_data = [shader_ctx];
+        let shader_ctx_data: &[u8] = bytemuck::cast_slice(&shader_ctx_data);
+        self.queue
+            .write_buffer(&self.shader_ctx_buffer, 0, shader_ctx_data);
+
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -175,6 +237,8 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+
+            render_pass.set_bind_group(0, &self.shader_ctx_bind_group, &[]);
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.draw(0..6, 0..1);

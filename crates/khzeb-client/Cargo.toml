@@ -10,3 +10,5 @@ log = "0.4"
 wgpu = "24.0"
 anyhow = "1.0.97"
 pollster = "0.4.0"
+glam = { version = "0.30" }
+bytemuck = { version = "1.22", features = ["derive"] }

@@ -21,6 +21,9 @@ pub fn main() {
                 ref event,
                 window_id,
             } if window_id == window.id() => match event {
+                WindowEvent::Resized(new_size) => {
+                    renderer.resize(*new_size);
+                }
                 WindowEvent::CloseRequested
                 | WindowEvent::KeyboardInput {
                     event:
@@ -33,6 +36,7 @@ pub fn main() {
                 } => control_flow.exit(),
                 WindowEvent::RedrawRequested => {
                     renderer.render();
+                    window.request_redraw();
                 }
                 _ => {}
             },
