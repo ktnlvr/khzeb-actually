@@ -1,9 +1,9 @@
 use std::sync::Mutex;
 
 use bitflags::bitflags;
-use bytemuck::{NoUninit, Pod, Zeroable};
+use bytemuck::{Pod, Zeroable};
 use glam::{IVec2, UVec2, Vec2};
-use wgpu::{naga::FastHashMap, Buffer, BufferDescriptor, BufferSlice, BufferUsages, Device, Queue};
+use wgpu::{Buffer, BufferDescriptor, BufferSlice, BufferUsages, Device, Queue};
 
 pub const BATCH_DIRTY_FLAG_SIZE: usize = 4;
 pub type BatchDirtyFlagBlock = u64;
@@ -33,11 +33,10 @@ pub struct BatchMetadata {
     pub zorder: u32,
 }
 
-#[derive(Default)]
 struct BatchMutableState {
     dirty_flag: BatchDirtyFlag,
     size: u32,
-    writes: FastHashMap<u32, BatchInstance>,
+    local: Box<[BatchInstance]>,
 }
 
 pub struct Batch {
@@ -58,9 +57,14 @@ impl Batch {
             mapped_at_creation: false,
         });
 
-        let mutable = Mutex::new(BatchMutableState::default());
-
-        Self { mutable, buffer }
+        Self {
+            buffer,
+            mutable: Mutex::new(BatchMutableState {
+                dirty_flag: [0; BATCH_DIRTY_FLAG_SIZE],
+                size: 0,
+                local: vec![BatchInstance::zeroed(); MAX_BATCH_SIZE].into_boxed_slice(),
+            }),
+        }
     }
 
     fn mark_dirty(mutable: &mut BatchMutableState, idx: u32) {
@@ -86,19 +90,47 @@ impl Batch {
         let idx = mutable.size;
         Batch::mark_dirty(&mut mutable, idx);
         mutable.size += 1;
-        mutable.writes.insert(idx, instance);
+        mutable.local[idx as usize] = instance;
     }
 
     pub fn flush(&self, queue: &Queue) {
-        // TODO: actually use the dirty flag
         let mut mutable = self.mutable.lock().unwrap();
-        for (i, write) in mutable.writes.drain() {
-            let written_data = [write];
-            queue.write_buffer(
-                &self.buffer,
-                (i as usize * std::mem::size_of::<BatchInstance>()) as u64,
-                bytemuck::cast_slice(&written_data),
-            );
+
+        let mut slices = Vec::with_capacity(16);
+
+        for (block_idx, block) in mutable.dirty_flag.iter_mut().enumerate() {
+            let mut bits = *block;
+            if bits == 0 {
+                continue;
+            }
+
+            while bits != 0 {
+                let first = bits.trailing_zeros() as usize;
+                let run = (bits >> first).trailing_ones() as usize;
+
+                let region_start = block_idx * BATCH_DIRTY_FLAGS_BITS_PER_BLOCK + first;
+
+                let start_instance_idx = region_start as u32 * INSTANCES_PER_REGION;
+                let end_instance_idx = (region_start + run) as u32 * INSTANCES_PER_REGION;
+
+                if start_instance_idx < end_instance_idx {
+                    let byte_offset = start_instance_idx as usize * size_of::<BatchInstance>();
+
+                    let s = start_instance_idx as usize;
+                    let e = end_instance_idx as usize;
+                    slices.push((s, e, byte_offset as u64));
+                }
+
+                // Black magic
+                bits &= !(((1_u64 << run) - 1) << first);
+            }
+
+            *block = 0;
+        }
+
+        for (s, e, byte_offset) in slices {
+            let slice = &mutable.local[s..e];
+            queue.write_buffer(&self.buffer, byte_offset, bytemuck::cast_slice(slice));
         }
     }
 
