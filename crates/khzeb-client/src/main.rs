@@ -1,6 +1,7 @@
 mod renderer;
 
-use renderer::Renderer;
+use glam::IVec2;
+use renderer::{batch::BatchInstance, Renderer};
 use winit::{
     event::*,
     event_loop::EventLoop,
@@ -14,6 +15,11 @@ pub fn main() {
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
     let mut renderer = Renderer::new(&window);
+
+    let arc_batch = renderer.create_batch(0x100);
+
+    arc_batch.push_unchecked(BatchInstance::builder().with_position_i32(IVec2::new(4, 4)));
+    arc_batch.flush(renderer.transfer_queue());
 
     event_loop
         .run(|event, control_flow| match event {

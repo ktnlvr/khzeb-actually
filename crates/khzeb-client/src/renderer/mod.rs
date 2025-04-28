@@ -1,16 +1,18 @@
+pub mod batch;
 mod camera;
 
-use std::{num::NonZeroU32, sync::Arc};
+use std::sync::Arc;
 
+use batch::Batch;
 use bytemuck::{Pod, Zeroable};
 use camera::Camera;
 use pollster::FutureExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    Backends, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
-    BufferUsages, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
-    PowerPreference, Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptionsBase,
-    ShaderStages, Surface, SurfaceConfiguration,
+    Backends, BindGroup, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer, BufferUsages,
+    Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits, PowerPreference,
+    Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptionsBase, ShaderStages,
+    Surface, SurfaceConfiguration,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -27,6 +29,8 @@ pub struct Renderer<'surface, 'window: 'surface> {
     shader_ctx_bind_group: BindGroup,
 
     render_pipeline: RenderPipeline,
+
+    batches: Vec<Arc<Batch>>,
 }
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -169,6 +173,8 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             cache: None,
         });
 
+        let batches = vec![];
+
         Self {
             surface,
             device,
@@ -182,6 +188,8 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             camera,
             shader_ctx_buffer,
             shader_ctx_bind_group,
+
+            batches,
         }
     }
 
@@ -240,12 +248,28 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
             render_pass.set_bind_group(0, &self.shader_ctx_bind_group, &[]);
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw(0..6, 0..1);
+            for batch in &self.batches {
+                render_pass.set_vertex_buffer(0, batch.buffer_slice());
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.draw(0..6, 0..1);
+            }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
         output.present();
+    }
+
+    pub fn transfer_queue(&self) -> &Queue {
+        &self.queue
+    }
+}
+
+impl<'surface, 'window> Renderer<'surface, 'window> {
+    pub fn create_batch(&mut self, max_size: usize) -> Arc<Batch> {
+        let batch = Batch::new(max_size, &self.device);
+        let arc_batch = Arc::new(batch);
+        self.batches.push(arc_batch.clone());
+        arc_batch
     }
 }
