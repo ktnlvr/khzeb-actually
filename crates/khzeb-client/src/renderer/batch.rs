@@ -3,7 +3,10 @@ use std::sync::Mutex;
 use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec2, UVec2, Vec2};
-use wgpu::{Buffer, BufferDescriptor, BufferSlice, BufferUsages, Device, Queue};
+use wgpu::{
+    vertex_attr_array, Buffer, BufferAddress, BufferDescriptor, BufferSlice, BufferUsages, Device,
+    Queue, VertexAttribute, VertexBufferLayout, VertexStepMode,
+};
 
 pub const BATCH_DIRTY_FLAG_SIZE: usize = 4;
 pub type BatchDirtyFlagBlock = u64;
@@ -135,7 +138,13 @@ impl Batch {
     }
 
     pub fn buffer_slice(&self) -> BufferSlice {
-        self.buffer.slice(..)
+        let bytes_size = self.size() * size_of::<BatchInstance>() as u64;
+        self.buffer.slice(..bytes_size)
+    }
+
+    pub fn size(&self) -> u64 {
+        let mutable = self.mutable.lock().unwrap();
+        mutable.size as u64
     }
 }
 
@@ -153,14 +162,50 @@ unsafe impl Pod for InstancePosition {}
 pub struct BatchInstance {
     position: InstancePosition,
     scale: f32,
+    tint: u32,
+}
+
+impl Default for BatchInstance {
+    fn default() -> Self {
+        Self {
+            position: InstancePosition { int: IVec2::ZERO },
+            scale: 1.,
+            tint: 0xFFFFFFFF,
+        }
+    }
 }
 
 impl BatchInstance {
-    pub fn builder() -> Self {
-        BatchInstance {
-            position: InstancePosition { int: IVec2::ZERO },
-            scale: 1.,
+    pub const ATTRIBUTES: [VertexAttribute; 3] = vertex_attr_array![
+        0 => Sint32x2,
+        1 => Float32,
+        2 => Uint32,
+    ];
+
+    pub fn vertex_buffer_layout() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: size_of::<Self>() as BufferAddress,
+            step_mode: VertexStepMode::Instance,
+            attributes: &Self::ATTRIBUTES,
         }
+    }
+}
+
+impl BatchInstance {
+    pub fn new_i32(position: IVec2, scale: f32) -> Self {
+        Self::default()
+            .with_position_i32(position)
+            .with_scale(scale)
+    }
+
+    pub fn new_f32(position: Vec2, scale: f32) -> Self {
+        Self::default()
+            .with_position_f32(position)
+            .with_scale(scale)
+    }
+
+    pub fn with_tint(self, tint: u32) -> Self {
+        Self { tint, ..self }
     }
 
     pub fn with_scale(self, scale: f32) -> Self {

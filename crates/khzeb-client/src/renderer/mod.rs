@@ -3,16 +3,18 @@ mod camera;
 
 use std::sync::Arc;
 
-use batch::Batch;
+use batch::{Batch, BatchInstance};
 use bytemuck::{Pod, Zeroable};
 use camera::Camera;
 use pollster::FutureExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    Backends, BindGroup, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer, BufferUsages,
-    Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits, PowerPreference,
+    Backends, BindGroup, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BlendState, Buffer,
+    BufferUsages, ColorTargetState, ColorWrites, Device, DeviceDescriptor, Face, Features,
+    FragmentState, FrontFace, Instance, InstanceDescriptor, Limits, MultisampleState,
+    PipelineCompilationOptions, PolygonMode, PowerPreference, PrimitiveState, PrimitiveTopology,
     Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptionsBase, ShaderStages,
-    Surface, SurfaceConfiguration,
+    Surface, SurfaceConfiguration, VertexState,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -132,39 +134,39 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
                 binding: 0,
                 resource: shader_ctx_buffer.as_entire_binding(),
             }],
-            label: Some("camera_bind_group"),
+            label: Some("Camera Bind Group"),
         });
 
         let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
+            vertex: VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[BatchInstance::vertex_buffer_layout()],
+                compilation_options: PipelineCompilationOptions::default(),
             },
-            fragment: Some(wgpu::FragmentState {
+            fragment: Some(FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
+                targets: &[Some(ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
                 })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
+                front_face: FrontFace::Ccw,
+                cull_mode: Some(Face::Back),
+                polygon_mode: PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
+            multisample: MultisampleState {
                 count: 1,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
@@ -247,11 +249,11 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             });
 
             render_pass.set_bind_group(0, &self.shader_ctx_bind_group, &[]);
+            render_pass.set_pipeline(&self.render_pipeline);
 
             for batch in &self.batches {
                 render_pass.set_vertex_buffer(0, batch.buffer_slice());
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.draw(0..6, 0..1);
+                render_pass.draw(0..6, 0..(batch.size() as u32));
             }
         }
 
