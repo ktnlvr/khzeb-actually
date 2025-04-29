@@ -1,11 +1,13 @@
 pub mod batch;
-mod camera;
+pub mod camera;
+pub mod instance;
 
 use std::sync::Arc;
 
-use batch::{Batch, BatchInstance};
+use batch::Batch;
 use bytemuck::{Pod, Zeroable};
 use camera::Camera;
+use instance::BatchInstance;
 use pollster::FutureExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},

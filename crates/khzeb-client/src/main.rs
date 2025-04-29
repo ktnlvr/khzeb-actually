@@ -1,7 +1,7 @@
 mod renderer;
+use renderer::{instance::BatchInstance, Renderer};
 
 use glam::Vec2;
-use renderer::{batch::BatchInstance, Renderer};
 use winit::{
     event::*,
     event_loop::EventLoop,
