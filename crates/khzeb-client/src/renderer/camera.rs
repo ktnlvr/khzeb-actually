@@ -11,7 +11,7 @@ impl Default for Camera {
         Self {
             aspect_ratio: 16. / 9.,
             size: 7.,
-            position: Vec2 { x: 1., y: 1. },
+            position: Vec2 { x: 0., y: 0. },
         }
     }
 }

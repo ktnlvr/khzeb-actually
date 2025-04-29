@@ -48,9 +48,10 @@ pub struct Batch {
 
 impl Batch {
     pub fn new(max_size: usize, device: &Device) -> Self {
-        if max_size > MAX_BATCH_SIZE {
-            panic!("Batch too big, requested {max_size}, but can only fit {MAX_BATCH_SIZE}")
-        }
+        assert!(
+            max_size <= MAX_BATCH_SIZE,
+            "Batch too big, requested {max_size}, but can only fit {MAX_BATCH_SIZE}"
+        );
 
         let buffer = device.create_buffer(&BufferDescriptor {
             label: Some("Batch Buffer"),
@@ -85,9 +86,10 @@ impl Batch {
     pub fn push_unchecked(&self, instance: BatchInstance) {
         let mut mutable = self.mutable.lock().unwrap();
 
-        if mutable.size as usize == MAX_BATCH_SIZE {
-            panic!("Bang! Batch overfilled")
-        }
+        assert_ne!(
+            mutable.size as usize, MAX_BATCH_SIZE,
+            "The buffer is filled up"
+        );
 
         let idx = mutable.size;
         Batch::mark_dirty(&mut mutable, idx);

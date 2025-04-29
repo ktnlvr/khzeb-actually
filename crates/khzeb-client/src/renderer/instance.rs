@@ -46,6 +46,10 @@ impl BatchInstance {
 }
 
 impl BatchInstance {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn new_i32(position: IVec2, scale: f32) -> Self {
         Self::default()
             .with_position_i32(position)

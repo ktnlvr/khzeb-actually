@@ -19,8 +19,8 @@ pub fn main() {
     let arc_batch = renderer.create_batch(0x100);
 
     let batches = [
-        BatchInstance::new_f32(Vec2::new(1., 1.), 1.2),
-        BatchInstance::new_f32(Vec2::new(0., 0.), 1.).with_tint(0xFF00FFFF),
+        BatchInstance::new().with_position_f32(Vec2::new(1., 1.)),
+        BatchInstance::new().with_tint(0xFF00FFFF),
     ];
 
     for batch in batches {
