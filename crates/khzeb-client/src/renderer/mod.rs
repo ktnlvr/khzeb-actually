@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod camera;
+pub mod dirty;
 pub mod instance;
 
 use std::sync::Arc;

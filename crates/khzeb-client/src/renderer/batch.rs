@@ -5,16 +5,12 @@ use bytemuck::{Pod, Zeroable};
 use glam::{UVec2, Vec2};
 use wgpu::{Buffer, BufferDescriptor, BufferSlice, BufferUsages, Device, Queue};
 
-use super::instance::BatchInstance;
+use super::{dirty::DirtyFlags, instance::BatchInstance};
 
-pub const BATCH_DIRTY_FLAG_SIZE: usize = 4;
-pub type BatchDirtyFlagBlock = u64;
-pub const BATCH_DIRTY_FLAGS_BITS_PER_BLOCK: usize = 64;
-pub type BatchDirtyFlag = [BatchDirtyFlagBlock; BATCH_DIRTY_FLAG_SIZE];
-
+pub const BATCH_DIRTY_FLAG_COUNT: usize = 4;
 pub const INSTANCES_PER_REGION: u32 = 16;
 pub const MAX_BATCH_SIZE: usize =
-    BATCH_DIRTY_FLAG_SIZE * BATCH_DIRTY_FLAGS_BITS_PER_BLOCK * INSTANCES_PER_REGION as usize;
+    DirtyFlags::<BATCH_DIRTY_FLAG_COUNT>::SIZE * INSTANCES_PER_REGION as usize;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -36,7 +32,7 @@ pub struct BatchMetadata {
 }
 
 struct BatchMutableState {
-    dirty_flag: BatchDirtyFlag,
+    dirty_flag: DirtyFlags<BATCH_DIRTY_FLAG_COUNT>,
     size: u32,
     local: Box<[BatchInstance]>,
 }
@@ -60,27 +56,16 @@ impl Batch {
             mapped_at_creation: false,
         });
 
+        let dirty_flag = DirtyFlags::new();
+
         Self {
             buffer,
             mutable: Mutex::new(BatchMutableState {
-                dirty_flag: [0; BATCH_DIRTY_FLAG_SIZE],
+                dirty_flag,
                 size: 0,
                 local: vec![BatchInstance::zeroed(); MAX_BATCH_SIZE].into_boxed_slice(),
             }),
         }
-    }
-
-    fn mark_dirty(mutable: &mut BatchMutableState, idx: u32) {
-        assert!(
-            idx < MAX_BATCH_SIZE as u32,
-            "Index has to be within the batch"
-        );
-
-        let region_idx = idx / INSTANCES_PER_REGION;
-        let slice_idx = region_idx as usize / BATCH_DIRTY_FLAGS_BITS_PER_BLOCK;
-        let bit_idx = region_idx as usize % BATCH_DIRTY_FLAGS_BITS_PER_BLOCK;
-
-        mutable.dirty_flag[slice_idx] |= 1 << bit_idx;
     }
 
     pub fn push_unchecked(&self, instance: BatchInstance) {
@@ -92,7 +77,9 @@ impl Batch {
         );
 
         let idx = mutable.size;
-        Batch::mark_dirty(&mut mutable, idx);
+        mutable
+            .dirty_flag
+            .mark((idx / INSTANCES_PER_REGION) as usize);
         mutable.size += 1;
         mutable.local[idx as usize] = instance;
     }
@@ -100,42 +87,20 @@ impl Batch {
     pub fn flush(&self, queue: &Queue) {
         let mut mutable = self.mutable.lock().unwrap();
 
-        let mut slices = Vec::with_capacity(16);
+        for marked in mutable.dirty_flag.iter_marked() {
+            let start = marked * INSTANCES_PER_REGION as usize;
+            let end = (marked + 1) * INSTANCES_PER_REGION as usize;
 
-        for (block_idx, block) in mutable.dirty_flag.iter_mut().enumerate() {
-            let mut bits = *block;
-            if bits == 0 {
-                continue;
-            }
+            let byte_offset = start * size_of::<BatchInstance>();
 
-            while bits != 0 {
-                let first = bits.trailing_zeros() as usize;
-                let run = (bits >> first).trailing_ones() as usize;
-
-                let region_start = block_idx * BATCH_DIRTY_FLAGS_BITS_PER_BLOCK + first;
-
-                let start_instance_idx = region_start as u32 * INSTANCES_PER_REGION;
-                let end_instance_idx = (region_start + run) as u32 * INSTANCES_PER_REGION;
-
-                if start_instance_idx < end_instance_idx {
-                    let byte_offset = start_instance_idx as usize * size_of::<BatchInstance>();
-
-                    let s = start_instance_idx as usize;
-                    let e = end_instance_idx as usize;
-                    slices.push((s, e, byte_offset as u64));
-                }
-
-                // Black magic
-                bits &= !(((1_u64 << run) - 1) << first);
-            }
-
-            *block = 0;
+            queue.write_buffer(
+                &self.buffer,
+                byte_offset as u64,
+                bytemuck::cast_slice(&mutable.local[start..end]),
+            );
         }
 
-        for (s, e, byte_offset) in slices {
-            let slice = &mutable.local[s..e];
-            queue.write_buffer(&self.buffer, byte_offset, bytemuck::cast_slice(slice));
-        }
+        mutable.dirty_flag.clear()
     }
 
     pub fn buffer_slice(&self) -> BufferSlice {
