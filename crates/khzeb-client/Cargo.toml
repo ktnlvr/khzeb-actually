@@ -13,3 +13,4 @@ pollster = "0.4.0"
 glam = { version = "0.30", features = ["bytemuck"] }
 bytemuck = { version = "1.22", features = ["derive"] }
 bitflags = { version = "2.9.0", features = ["bytemuck"] }
+khzeb = { path = "../khzeb-common" }
