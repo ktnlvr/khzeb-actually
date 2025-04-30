@@ -17,6 +17,10 @@ impl Default for Camera {
 }
 
 impl Camera {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn bake(&self) -> Mat4 {
         let half_width = 0.5 * self.size;
         let half_height = half_width / self.aspect_ratio;

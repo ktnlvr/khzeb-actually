@@ -1,3 +1,4 @@
+pub mod base;
 pub mod batch;
 pub mod camera;
 pub mod dirty;
@@ -5,19 +6,16 @@ pub mod instance;
 
 use std::sync::Arc;
 
+use base::RendererBase;
 use batch::Batch;
 use bytemuck::{Pod, Zeroable};
 use camera::Camera;
-use instance::BatchInstance;
 use pollster::FutureExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    Backends, BindGroup, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BlendState, Buffer,
-    BufferUsages, ColorTargetState, ColorWrites, Device, DeviceDescriptor, Face, Features,
-    FragmentState, FrontFace, Instance, InstanceDescriptor, Limits, MultisampleState,
-    PipelineCompilationOptions, PolygonMode, PowerPreference, PrimitiveState, PrimitiveTopology,
-    Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptionsBase, ShaderStages,
-    Surface, SurfaceConfiguration, VertexState,
+    Backends, BindGroup, Buffer, BufferUsages, Device, DeviceDescriptor, Features, Instance,
+    InstanceDescriptor, Limits, PowerPreference, Queue, RequestAdapterOptionsBase, Surface,
+    SurfaceConfiguration,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -31,11 +29,32 @@ pub struct Renderer<'surface, 'window: 'surface> {
 
     camera: Camera,
     shader_ctx_buffer: Arc<Buffer>,
-    shader_ctx_bind_group: BindGroup,
 
-    render_pipeline: RenderPipeline,
+    base: RendererBase,
+    bind_groups: BindGroups,
 
     batches: Vec<Arc<Batch>>,
+}
+
+struct BindGroups {
+    shader_ctx_bind_group: BindGroup,
+}
+
+impl BindGroups {
+    pub fn new(device: &Device, base: &RendererBase, shader_ctx_buffer: &Buffer) -> Self {
+        let shader_ctx_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &base.shader_ctx_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: shader_ctx_buffer.as_entire_binding(),
+            }],
+            label: Some("Shader Context Bind Group"),
+        });
+
+        Self {
+            shader_ctx_bind_group,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -99,31 +118,7 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
         surface.configure(&device, &config);
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/standard.wgsl"));
-
-        let shader_ctx_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&shader_ctx_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let camera = Camera::default();
+        let base = RendererBase::new(&device, &config);
 
         let shader_ctx_buffer = Arc::new(device.create_buffer_init(&BufferInitDescriptor {
             label: None,
@@ -131,54 +126,11 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         }));
 
-        let shader_ctx_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &shader_ctx_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: shader_ctx_buffer.as_entire_binding(),
-            }],
-            label: Some("Camera Bind Group"),
-        });
-
-        let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[BatchInstance::vertex_buffer_layout()],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: config.format,
-                    blend: Some(BlendState::REPLACE),
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: FrontFace::Ccw,
-                cull_mode: Some(Face::Back),
-                polygon_mode: PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
+        let bind_groups = BindGroups::new(&device, &base, &shader_ctx_buffer);
 
         let batches = vec![];
+
+        let camera = Camera::new();
 
         Self {
             surface,
@@ -188,13 +140,12 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             size,
             window,
 
-            render_pipeline,
+            base,
+            shader_ctx_buffer,
+            batches,
+            bind_groups,
 
             camera,
-            shader_ctx_buffer,
-            shader_ctx_bind_group,
-
-            batches,
         }
     }
 
@@ -251,8 +202,9 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
                 timestamp_writes: None,
             });
 
-            render_pass.set_bind_group(0, &self.shader_ctx_bind_group, &[]);
-            render_pass.set_pipeline(&self.render_pipeline);
+            // Render the batches
+            render_pass.set_bind_group(0, &self.bind_groups.shader_ctx_bind_group, &[]);
+            render_pass.set_pipeline(&self.base.batch_shader_pipeline);
 
             for batch in &self.batches {
                 render_pass.set_vertex_buffer(0, batch.buffer_slice());
