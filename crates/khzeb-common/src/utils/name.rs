@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    hash::{Hash, Hasher},
     ops::Deref,
     sync::{Arc, RwLock},
 };
@@ -57,6 +58,12 @@ impl Eq for Name {}
 impl PartialEq<&str> for Name {
     fn eq(&self, other: &&str) -> bool {
         self.0.as_ref() == *other
+    }
+}
+
+impl Hash for Name {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.as_ptr().hash(state);
     }
 }
 
