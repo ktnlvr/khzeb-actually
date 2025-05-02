@@ -1,4 +1,3 @@
-pub mod base;
 pub mod batch;
 pub mod camera;
 pub mod dirty;
@@ -6,16 +5,19 @@ pub mod instance;
 
 use std::sync::Arc;
 
-use base::RendererBase;
 use batch::Batch;
 use bytemuck::{Pod, Zeroable};
 use camera::Camera;
+use instance::BatchInstance;
 use pollster::FutureExt;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    Backends, BindGroup, Buffer, BufferUsages, Device, DeviceDescriptor, Features, Instance,
-    InstanceDescriptor, Limits, PowerPreference, Queue, RequestAdapterOptionsBase, Surface,
-    SurfaceConfiguration,
+    Backends, BindGroup, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BlendState, Buffer,
+    BufferUsages, ColorTargetState, ColorWrites, Device, DeviceDescriptor, Face, Features,
+    FragmentState, FrontFace, Instance, InstanceDescriptor, Limits, MultisampleState,
+    PipelineCompilationOptions, PolygonMode, PowerPreference, PrimitiveState, PrimitiveTopology,
+    Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptionsBase, ShaderStages,
+    Surface, SurfaceConfiguration, VertexState,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -35,14 +37,14 @@ pub struct Renderer<'surface, 'window: 'surface> {
 
     lookup: LookupTable,
 
-    base: RendererBase,
-
     batches: Vec<Arc<Batch>>,
 }
 
 struct LookupTable {
     shader_context_buffer: Resource<Arc<Buffer>>,
     shader_context_bind_group: Resource<BindGroup>,
+
+    batch_pipeline: Resource<RenderPipeline>,
 }
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -106,9 +108,22 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
         surface.configure(&device, &config);
 
-        let mut resources = Registry::new();
+        let shader_ctx_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
-        let base = RendererBase::new(&device, &config);
+        let mut resources = Registry::new();
 
         let _shader_context_buffer = Arc::new(device.create_buffer_init(&BufferInitDescriptor {
             label: None,
@@ -119,7 +134,7 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
         let shader_context_bind_group = resources.put(
             Name::new("renderer/shader-context-bind-group"),
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &base.shader_ctx_bind_group_layout,
+                layout: &shader_ctx_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: _shader_context_buffer.as_entire_binding(),
@@ -133,9 +148,60 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             _shader_context_buffer,
         );
 
+        let batch_shader = device.create_shader_module(wgpu::include_wgsl!("shaders/batch.wgsl"));
+
+        let batch_shader_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[&shader_ctx_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let batch_shader_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&batch_shader_pipeline_layout),
+            vertex: VertexState {
+                module: &batch_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[BatchInstance::vertex_buffer_layout()],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(FragmentState {
+                module: &batch_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: config.format,
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: FrontFace::Ccw,
+                cull_mode: Some(Face::Back),
+                polygon_mode: PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
+        let batch_pipeline =
+            resources.put(Name::new("renderer/batch-pipeline"), batch_shader_pipeline);
+
         let lookup = LookupTable {
             shader_context_buffer,
             shader_context_bind_group,
+            batch_pipeline,
         };
 
         let batches = vec![];
@@ -150,7 +216,6 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             size,
             window,
 
-            base,
             batches,
 
             camera,
@@ -223,9 +288,14 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
                 .get(self.lookup.shader_context_bind_group.clone())
                 .unwrap();
 
+            let batch_pipeline = self
+                .resources
+                .get(self.lookup.batch_pipeline.clone())
+                .unwrap();
+
             // Render the batches
             render_pass.set_bind_group(0, shader_ctx_bind_group, &[]);
-            render_pass.set_pipeline(&self.base.batch_shader_pipeline);
+            render_pass.set_pipeline(&batch_pipeline);
 
             for batch in &self.batches {
                 render_pass.set_vertex_buffer(0, batch.buffer_slice());
