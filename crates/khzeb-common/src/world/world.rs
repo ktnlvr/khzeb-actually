@@ -92,11 +92,16 @@ mod tests {
 
         world.add_component(a, label_a.clone());
         world.add_component(b, label_b.clone());
-        assert!(world.has_component(a, label_a));
-        assert!(world.has_component(b, label_b));
+
+        assert!(world.has_component(a, label_a.clone()));
+        assert!(world.has_component(b, label_b.clone()));
+
+        assert!(!world.has_component(a, label_b));
+        assert!(!world.has_component(b, label_a));
 
         world.add_component(a, label_shared.clone());
         world.add_component(b, label_shared.clone());
+
         assert!(world.has_component(a, label_shared.clone()));
         assert!(world.has_component(b, label_shared));
     }
