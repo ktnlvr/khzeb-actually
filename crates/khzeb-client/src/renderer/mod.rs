@@ -21,7 +21,7 @@ use wgpu::{
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
-use khzeb::{Name, Registry, Resource};
+use khzeb::prelude::*;
 
 pub struct Renderer<'surface, 'window: 'surface> {
     surface: Surface<'surface>,

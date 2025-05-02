@@ -1,4 +1,7 @@
-mod utils;
-mod world;
+pub mod utils;
+pub mod world;
 
-pub use utils::*;
+pub mod prelude {
+    pub use super::utils::*;
+    pub use super::world::*;
+}
