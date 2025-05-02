@@ -19,6 +19,8 @@ use wgpu::{
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
+use khzeb::{Name, Registry, Resource};
+
 pub struct Renderer<'surface, 'window: 'surface> {
     surface: Surface<'surface>,
     device: Device,
@@ -27,34 +29,20 @@ pub struct Renderer<'surface, 'window: 'surface> {
     size: PhysicalSize<u32>,
     window: &'window Window,
 
+    resources: Registry,
+
     camera: Camera,
-    shader_ctx_buffer: Arc<Buffer>,
+
+    lookup: LookupTable,
 
     base: RendererBase,
-    bind_groups: BindGroups,
 
     batches: Vec<Arc<Batch>>,
 }
 
-struct BindGroups {
-    shader_ctx_bind_group: BindGroup,
-}
-
-impl BindGroups {
-    pub fn new(device: &Device, base: &RendererBase, shader_ctx_buffer: &Buffer) -> Self {
-        let shader_ctx_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &base.shader_ctx_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: shader_ctx_buffer.as_entire_binding(),
-            }],
-            label: Some("Shader Context Bind Group"),
-        });
-
-        Self {
-            shader_ctx_bind_group,
-        }
-    }
+struct LookupTable {
+    shader_context_buffer: Resource<Arc<Buffer>>,
+    shader_context_bind_group: Resource<BindGroup>,
 }
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -118,15 +106,37 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
         surface.configure(&device, &config);
 
+        let mut resources = Registry::new();
+
         let base = RendererBase::new(&device, &config);
 
-        let shader_ctx_buffer = Arc::new(device.create_buffer_init(&BufferInitDescriptor {
+        let _shader_context_buffer = Arc::new(device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[ShaderContext::default()]),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         }));
 
-        let bind_groups = BindGroups::new(&device, &base, &shader_ctx_buffer);
+        let shader_context_bind_group = resources.put(
+            Name::new("renderer/shader-context-bind-group"),
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &base.shader_ctx_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: _shader_context_buffer.as_entire_binding(),
+                }],
+                label: Some("renderer/shader-context-bind-group"),
+            }),
+        );
+
+        let shader_context_buffer = resources.put(
+            Name::new("renderer/shader-context-buffer"),
+            _shader_context_buffer,
+        );
+
+        let lookup = LookupTable {
+            shader_context_buffer,
+            shader_context_bind_group,
+        };
 
         let batches = vec![];
 
@@ -141,11 +151,11 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             window,
 
             base,
-            shader_ctx_buffer,
             batches,
-            bind_groups,
 
             camera,
+            resources,
+            lookup,
         }
     }
 
@@ -168,8 +178,14 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
         let shader_ctx_data = [shader_ctx];
         let shader_ctx_data: &[u8] = bytemuck::cast_slice(&shader_ctx_data);
+
+        let shader_ctx_buffer = self
+            .resources
+            .get(self.lookup.shader_context_buffer.clone())
+            .unwrap();
+
         self.queue
-            .write_buffer(&self.shader_ctx_buffer, 0, shader_ctx_data);
+            .write_buffer(&shader_ctx_buffer, 0, shader_ctx_data);
 
         let view = output
             .texture
@@ -202,8 +218,13 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
                 timestamp_writes: None,
             });
 
+            let shader_ctx_bind_group = self
+                .resources
+                .get(self.lookup.shader_context_bind_group.clone())
+                .unwrap();
+
             // Render the batches
-            render_pass.set_bind_group(0, &self.bind_groups.shader_ctx_bind_group, &[]);
+            render_pass.set_bind_group(0, shader_ctx_bind_group, &[]);
             render_pass.set_pipeline(&self.base.batch_shader_pipeline);
 
             for batch in &self.batches {
