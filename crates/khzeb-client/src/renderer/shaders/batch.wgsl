@@ -25,7 +25,7 @@ fn unpack_u32_to_rgba(color: u32) -> vec4<f32> {
 }
 
 @vertex
-fn vs_main(
+fn vertex_main(
     @builtin(vertex_index) vertex_index: u32,
     @location(0) instance_position: vec2<i32>,
     @location(1) instance_scale: f32,
@@ -47,6 +47,6 @@ fn vs_main(
 }
 
 @fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
     return input.frag_color;
 }

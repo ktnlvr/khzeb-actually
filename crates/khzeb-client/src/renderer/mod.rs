@@ -4,6 +4,7 @@ pub mod buffer;
 pub mod camera;
 pub mod dirty;
 pub mod instance;
+pub mod pipeline;
 
 use std::sync::Arc;
 
@@ -13,13 +14,12 @@ use buffer::{create_buffer, BufferHandle};
 use bytemuck::{Pod, Zeroable};
 use camera::Camera;
 use instance::BatchInstance;
+use pipeline::{create_render_pipeline, Pipeline};
 use pollster::FutureExt;
 use wgpu::{
-    Backends, BlendState, BufferUsages, ColorTargetState, ColorWrites, Device, DeviceDescriptor,
-    Face, Features, FragmentState, FrontFace, Instance, InstanceDescriptor, Limits,
-    MultisampleState, PipelineCompilationOptions, PolygonMode, PowerPreference, PrimitiveState,
-    PrimitiveTopology, Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptionsBase,
-    ShaderStages, Surface, SurfaceConfiguration, VertexState,
+    Backends, BufferUsages, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor,
+    Limits, PowerPreference, Queue, RenderPipeline, RequestAdapterOptionsBase, ShaderStages,
+    Surface, SurfaceConfiguration,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -33,8 +33,6 @@ pub struct Renderer<'surface, 'window: 'surface> {
     size: PhysicalSize<u32>,
     window: &'window Window,
 
-    resources: Registry,
-
     camera: Camera,
 
     lookup: LookupTable,
@@ -46,7 +44,7 @@ struct LookupTable {
     shader_context_buffer: BufferHandle<ShaderContext>,
     shader_context_bind_group: Binding,
 
-    batch_pipeline: Resource<RenderPipeline>,
+    batch_pipeline: Pipeline,
 }
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -128,53 +126,13 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
         let batch_shader = device.create_shader_module(wgpu::include_wgsl!("shaders/batch.wgsl"));
 
-        let batch_shader_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&binding_layout.layout],
-                push_constant_ranges: &[],
-            });
-
-        let batch_shader_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&batch_shader_pipeline_layout),
-            vertex: VertexState {
-                module: &batch_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[BatchInstance::vertex_buffer_layout()],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(FragmentState {
-                module: &batch_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: config.format,
-                    blend: Some(BlendState::REPLACE),
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: FrontFace::Ccw,
-                cull_mode: Some(Face::Back),
-                polygon_mode: PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
-
-        let batch_pipeline =
-            resources.put(Name::new("renderer/batch-pipeline"), batch_shader_pipeline);
+        let batch_pipeline = create_render_pipeline(
+            &device,
+            &batch_shader,
+            [&binding_layout],
+            config.format,
+            [BatchInstance::vertex_buffer_layout()],
+        );
 
         let lookup = LookupTable {
             shader_context_buffer,
@@ -197,7 +155,6 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             batches,
 
             camera,
-            resources,
             lookup,
         }
     }
@@ -259,14 +216,9 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
                 timestamp_writes: None,
             });
 
-            let batch_pipeline = self
-                .resources
-                .get(self.lookup.batch_pipeline.clone())
-                .unwrap();
-
             // Render the batches
             render_pass.set_bind_group(0, &self.lookup.shader_context_bind_group, &[]);
-            render_pass.set_pipeline(&batch_pipeline);
+            render_pass.set_pipeline(&self.lookup.batch_pipeline);
 
             for batch in &self.batches {
                 render_pass.set_vertex_buffer(0, batch.buffer_slice());
