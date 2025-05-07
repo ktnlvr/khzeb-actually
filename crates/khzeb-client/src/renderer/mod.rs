@@ -1,4 +1,6 @@
 pub mod batch;
+pub mod bindings;
+pub mod buffer;
 pub mod camera;
 pub mod dirty;
 pub mod instance;
@@ -6,18 +8,18 @@ pub mod instance;
 use std::sync::Arc;
 
 use batch::Batch;
+use bindings::{create_binding, create_binding_layout, Binding};
+use buffer::{create_buffer, BufferHandle};
 use bytemuck::{Pod, Zeroable};
 use camera::Camera;
 use instance::BatchInstance;
 use pollster::FutureExt;
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
-    Backends, BindGroup, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BlendState, Buffer,
-    BufferUsages, ColorTargetState, ColorWrites, Device, DeviceDescriptor, Face, Features,
-    FragmentState, FrontFace, Instance, InstanceDescriptor, Limits, MultisampleState,
-    PipelineCompilationOptions, PolygonMode, PowerPreference, PrimitiveState, PrimitiveTopology,
-    Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptionsBase, ShaderStages,
-    Surface, SurfaceConfiguration, VertexState,
+    Backends, BlendState, BufferUsages, ColorTargetState, ColorWrites, Device, DeviceDescriptor,
+    Face, Features, FragmentState, FrontFace, Instance, InstanceDescriptor, Limits,
+    MultisampleState, PipelineCompilationOptions, PolygonMode, PowerPreference, PrimitiveState,
+    PrimitiveTopology, Queue, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptionsBase,
+    ShaderStages, Surface, SurfaceConfiguration, VertexState,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -41,8 +43,8 @@ pub struct Renderer<'surface, 'window: 'surface> {
 }
 
 struct LookupTable {
-    shader_context_buffer: Resource<Arc<Buffer>>,
-    shader_context_bind_group: Resource<BindGroup>,
+    shader_context_buffer: BufferHandle<ShaderContext>,
+    shader_context_bind_group: Binding,
 
     batch_pipeline: Resource<RenderPipeline>,
 }
@@ -108,52 +110,28 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
         surface.configure(&device, &config);
 
-        let shader_ctx_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let bindings = [wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        }];
+
+        let binding_layout = create_binding_layout(&device, ShaderStages::VERTEX, bindings);
 
         let mut resources = Registry::new();
 
-        let _shader_context_buffer = Arc::new(device.create_buffer_init(&BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&[ShaderContext::default()]),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-        }));
+        let shader_context_buffer =
+            create_buffer::<ShaderContext>(&device, BufferUsages::UNIFORM | BufferUsages::COPY_DST);
 
-        let shader_context_bind_group = resources.put(
-            Name::new("renderer/shader-context-bind-group"),
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &shader_ctx_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: _shader_context_buffer.as_entire_binding(),
-                }],
-                label: Some("renderer/shader-context-bind-group"),
-            }),
-        );
-
-        let shader_context_buffer = resources.put(
-            Name::new("renderer/shader-context-buffer"),
-            _shader_context_buffer,
-        );
+        let bindings = [shader_context_buffer.buffer.as_entire_binding()];
+        let shader_context_bind_group = create_binding(&device, &binding_layout, &bindings[..]);
 
         let batch_shader = device.create_shader_module(wgpu::include_wgsl!("shaders/batch.wgsl"));
 
         let batch_shader_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&shader_ctx_bind_group_layout],
+                bind_group_layouts: &[&binding_layout.layout],
                 push_constant_ranges: &[],
             });
 
@@ -244,13 +222,11 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
         let shader_ctx_data = [shader_ctx];
         let shader_ctx_data: &[u8] = bytemuck::cast_slice(&shader_ctx_data);
 
-        let shader_ctx_buffer = self
-            .resources
-            .get(self.lookup.shader_context_buffer.clone())
-            .unwrap();
-
-        self.queue
-            .write_buffer(&shader_ctx_buffer, 0, shader_ctx_data);
+        self.queue.write_buffer(
+            &self.lookup.shader_context_buffer.buffer,
+            0,
+            shader_ctx_data,
+        );
 
         let view = output
             .texture
@@ -283,18 +259,13 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
                 timestamp_writes: None,
             });
 
-            let shader_ctx_bind_group = self
-                .resources
-                .get(self.lookup.shader_context_bind_group.clone())
-                .unwrap();
-
             let batch_pipeline = self
                 .resources
                 .get(self.lookup.batch_pipeline.clone())
                 .unwrap();
 
             // Render the batches
-            render_pass.set_bind_group(0, shader_ctx_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.lookup.shader_context_bind_group, &[]);
             render_pass.set_pipeline(&batch_pipeline);
 
             for batch in &self.batches {
