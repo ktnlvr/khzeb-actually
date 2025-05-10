@@ -1,13 +1,19 @@
 struct ShaderContext {
-    viewProj: mat4x4<f32>,
+    view_projection: mat4x4<f32>,
 };
 
 @group(0) @binding(0)
 var<uniform> shader_ctx: ShaderContext;
 
+@group(1) @binding(0)
+var s_diffuse: sampler;
+@group(1) @binding(1)
+var t_diffuse: texture_2d<f32>;
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) frag_color: vec4<f32>,
+    @location(0) tint_color: vec4<f32>,
+    @location(1) texture_position: vec2<f32>,
 };
 
 fn unpack_u32_to_rgba(color: u32) -> vec4<f32> {
@@ -41,12 +47,13 @@ fn vertex_main(
 
     var output: VertexOutput;
     var pos = vec4<f32>(instance_scale * positions[vertex_index] + bitcast<vec2<f32>>(instance_position), 0.0, 1.0);
-    output.position = shader_ctx.viewProj * pos;
-    output.frag_color = unpack_u32_to_rgba(instance_color);
+    output.position = shader_ctx.view_projection * pos;
+    output.tint_color = unpack_u32_to_rgba(instance_color);
+    output.texture_position = 2. * (positions[vertex_index] + 0.5);
     return output;
 }
 
 @fragment
 fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    return input.frag_color;
+    return textureSample(t_diffuse, s_diffuse, input.texture_position) * input.tint_color;
 }

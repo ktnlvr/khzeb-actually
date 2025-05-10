@@ -20,7 +20,9 @@ impl Registry {
         Default::default()
     }
 
-    pub fn put<R: 'static>(&mut self, name: Name, resource: R) -> Resource<R> {
+    pub fn put<R: 'static>(&mut self, name: impl Into<Name>, resource: R) -> Resource<R> {
+        let name = name.into();
+
         let res = Resource {
             name: name.clone(),
             _phantom_data: Default::default(),

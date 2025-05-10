@@ -5,6 +5,7 @@ pub mod camera;
 pub mod dirty;
 pub mod instance;
 pub mod pipeline;
+pub mod texture;
 
 use std::sync::Arc;
 
@@ -16,10 +17,12 @@ use camera::Camera;
 use instance::BatchInstance;
 use pipeline::{create_render_pipeline, Pipeline};
 use pollster::FutureExt;
+use texture::Texture;
 use wgpu::{
-    Backends, BufferUsages, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor,
-    Limits, PowerPreference, Queue, RenderPipeline, RequestAdapterOptionsBase, ShaderStages,
-    Surface, SurfaceConfiguration,
+    AddressMode, Backends, BindingResource, BindingType, BufferBindingType, BufferUsages, Device,
+    DeviceDescriptor, Features, FilterMode, Instance, InstanceDescriptor, Limits, PowerPreference,
+    Queue, RequestAdapterOptionsBase, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+    Surface, SurfaceConfiguration, TextureSampleType, TextureUsages, TextureViewDimension,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -33,16 +36,20 @@ pub struct Renderer<'surface, 'window: 'surface> {
     size: PhysicalSize<u32>,
     window: &'window Window,
 
+    universal_sampler: Sampler,
     camera: Camera,
 
     lookup: LookupTable,
 
     batches: Vec<Arc<Batch>>,
+
+    texture_registry: Registry,
 }
 
 struct LookupTable {
     shader_context_buffer: BufferHandle<ShaderContext>,
     shader_context_bind_group: Binding,
+    texture_bind_group: Binding,
 
     batch_pipeline: Pipeline,
 }
@@ -108,28 +115,76 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
         surface.configure(&device, &config);
 
-        let bindings = [wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        }];
+        let universal_sampler = device.create_sampler(&SamplerDescriptor {
+            label: Some("Universal Sampler"),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
+            ..Default::default()
+        });
 
-        let binding_layout = create_binding_layout(&device, ShaderStages::VERTEX, bindings);
+        let world00_texture_raw = include_bytes!("./textures/world00.png");
+        let world00_texture_image = image::load_from_memory(world00_texture_raw).unwrap();
 
-        let mut resources = Registry::new();
+        let world00_texture = Texture::new(
+            &device,
+            &queue,
+            world00_texture_image,
+            TextureUsages::TEXTURE_BINDING,
+        );
+
+        let shader_ctx_binding_layout = create_binding_layout(
+            &device,
+            ShaderStages::VERTEX,
+            [BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            }],
+        );
 
         let shader_context_buffer =
             create_buffer::<ShaderContext>(&device, BufferUsages::UNIFORM | BufferUsages::COPY_DST);
 
-        let bindings = [shader_context_buffer.buffer.as_entire_binding()];
-        let shader_context_bind_group = create_binding(&device, &binding_layout, &bindings[..]);
+        let world00_view = world00_texture.to_view(&device);
+
+        let shader_context_bind_group = create_binding(
+            &device,
+            &shader_ctx_binding_layout,
+            [shader_context_buffer.buffer.as_entire_binding()],
+        );
+
+        let texture_binding_layout = create_binding_layout(
+            &device,
+            ShaderStages::FRAGMENT,
+            [
+                BindingType::Sampler(SamplerBindingType::Filtering),
+                BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
+                },
+            ],
+        );
+
+        let texture_bind_group = create_binding(
+            &device,
+            &texture_binding_layout,
+            [
+                BindingResource::Sampler(&universal_sampler),
+                BindingResource::TextureView(&world00_view),
+            ],
+        );
 
         let batch_shader = device.create_shader_module(wgpu::include_wgsl!("shaders/batch.wgsl"));
 
         let batch_pipeline = create_render_pipeline(
             &device,
             &batch_shader,
-            [&binding_layout],
+            [&shader_ctx_binding_layout, &texture_binding_layout],
             config.format,
             [BatchInstance::vertex_buffer_layout()],
         );
@@ -137,12 +192,16 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
         let lookup = LookupTable {
             shader_context_buffer,
             shader_context_bind_group,
+            texture_bind_group,
             batch_pipeline,
         };
 
         let batches = vec![];
 
         let camera = Camera::new();
+
+        let mut texture_registry = Registry::new();
+        texture_registry.put("textures/world00", world00_texture);
 
         Self {
             surface,
@@ -151,11 +210,13 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             config,
             size,
             window,
+            universal_sampler,
 
             batches,
 
             camera,
             lookup,
+            texture_registry,
         }
     }
 
@@ -216,8 +277,8 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
                 timestamp_writes: None,
             });
 
-            // Render the batches
             render_pass.set_bind_group(0, &self.lookup.shader_context_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.lookup.texture_bind_group, &[]);
             render_pass.set_pipeline(&self.lookup.batch_pipeline);
 
             for batch in &self.batches {

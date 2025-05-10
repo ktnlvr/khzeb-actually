@@ -58,13 +58,10 @@ pub fn create_binding_layout(
 pub fn create_binding<'resource>(
     device: &Device,
     layout: &BindingLayout,
-    resources: &[BindingResource<'resource>],
+    resources: impl IntoIterator<Item = BindingResource<'resource>>,
 ) -> Binding {
-    assert_eq!(layout.entries.len(), resources.len());
-
     let entries = resources
-        .iter()
-        .cloned()
+        .into_iter()
         .enumerate()
         .map(|(i, resource)| BindGroupEntry {
             binding: i as u32,
