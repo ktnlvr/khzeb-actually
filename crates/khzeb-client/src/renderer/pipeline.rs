@@ -43,7 +43,7 @@ pub fn create_render_pipeline<'all>(
 
     let targets = &[Some(ColorTargetState {
         format,
-        blend: Some(BlendState::REPLACE),
+        blend: Some(BlendState::ALPHA_BLENDING),
         write_mask: ColorWrites::ALL,
     })];
 
