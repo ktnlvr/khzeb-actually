@@ -63,7 +63,7 @@ pub fn create_render_pipeline<'all>(
             compilation_options: PipelineCompilationOptions::default(),
         }),
         primitive: PrimitiveState {
-            topology: PrimitiveTopology::TriangleList,
+            topology: PrimitiveTopology::TriangleStrip,
             strip_index_format: None,
             front_face: FrontFace::Ccw,
             cull_mode: Some(Face::Back),

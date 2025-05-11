@@ -1,3 +1,4 @@
+pub mod atlas;
 pub mod batch;
 pub mod bindings;
 pub mod buffer;
@@ -9,6 +10,7 @@ pub mod texture;
 
 use std::sync::Arc;
 
+use atlas::{TextureAtlas, TextureAtlasProperties};
 use batch::Batch;
 use bindings::{create_binding, create_binding_layout, Binding};
 use buffer::{create_buffer, BufferHandle};
@@ -50,6 +52,7 @@ struct LookupTable {
     shader_context_buffer: BufferHandle<ShaderContext>,
     shader_context_bind_group: Binding,
     texture_bind_group: Binding,
+    texture_atlas: TextureAtlas,
 
     batch_pipeline: Pipeline,
 }
@@ -149,7 +152,7 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
         let shader_context_buffer =
             create_buffer::<ShaderContext>(&device, BufferUsages::UNIFORM | BufferUsages::COPY_DST);
 
-        let world00_view = world00_texture.to_view(&device);
+        let world00_view = world00_texture.to_view();
 
         let shader_context_bind_group = create_binding(
             &device,
@@ -157,10 +160,13 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             [shader_context_buffer.buffer.as_entire_binding()],
         );
 
+        let texture_atlas = TextureAtlas::new_square(&device, &queue, 32, 8);
+
         let texture_binding_layout = create_binding_layout(
             &device,
-            ShaderStages::FRAGMENT,
+            ShaderStages::VERTEX_FRAGMENT,
             [
+                TextureAtlas::binding_type(),
                 BindingType::Sampler(SamplerBindingType::Filtering),
                 BindingType::Texture {
                     sample_type: TextureSampleType::Float { filterable: true },
@@ -174,6 +180,7 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             &device,
             &texture_binding_layout,
             [
+                texture_atlas.as_entire_binding(),
                 BindingResource::Sampler(&universal_sampler),
                 BindingResource::TextureView(&world00_view),
             ],
@@ -194,6 +201,7 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             shader_context_bind_group,
             texture_bind_group,
             batch_pipeline,
+            texture_atlas,
         };
 
         let batches = vec![];
@@ -283,7 +291,7 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
             for batch in &self.batches {
                 render_pass.set_vertex_buffer(0, batch.buffer_slice());
-                render_pass.draw(0..6, 0..(batch.size() as u32));
+                render_pass.draw(0..4, 0..(batch.size() as u32));
             }
         }
 

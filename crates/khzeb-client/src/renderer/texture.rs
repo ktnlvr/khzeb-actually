@@ -67,9 +67,8 @@ impl Texture {
         Texture { texture }
     }
 
-    pub fn to_view(&self, device: &Device) -> TextureView {
+    pub fn to_view(&self) -> TextureView {
         let view = self.texture.create_view(&TextureViewDescriptor::default());
-
         TextureView { view }
     }
 }

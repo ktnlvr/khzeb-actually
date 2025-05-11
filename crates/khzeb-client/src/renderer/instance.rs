@@ -17,6 +17,7 @@ pub struct BatchInstance {
     position: InstancePosition,
     scale: f32,
     tint: u32,
+    texture_index: u32,
 }
 
 impl Default for BatchInstance {
@@ -25,15 +26,17 @@ impl Default for BatchInstance {
             position: InstancePosition { int: IVec2::ZERO },
             scale: 1.,
             tint: 0xFFFFFFFF,
+            texture_index: 0,
         }
     }
 }
 
 impl BatchInstance {
-    pub const ATTRIBUTES: [VertexAttribute; 3] = vertex_attr_array![
+    pub const ATTRIBUTES: [VertexAttribute; 4] = vertex_attr_array![
         0 => Sint32x2,
         1 => Float32,
         2 => Uint32,
+        3 => Uint32,
     ];
 
     pub fn vertex_buffer_layout() -> VertexBufferLayout<'static> {
@@ -68,6 +71,13 @@ impl BatchInstance {
 
     pub fn with_scale(self, scale: f32) -> Self {
         Self { scale, ..self }
+    }
+
+    pub fn with_texture_idx(self, texture_index: u32) -> Self {
+        Self {
+            texture_index,
+            ..self
+        }
     }
 
     pub fn with_position_f32(self, float: Vec2) -> Self {

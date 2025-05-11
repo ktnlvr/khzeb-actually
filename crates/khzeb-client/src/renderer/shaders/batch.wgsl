@@ -5,9 +5,16 @@ struct ShaderContext {
 @group(0) @binding(0)
 var<uniform> shader_ctx: ShaderContext;
 
+struct TileAtlas {
+    size: u32,
+    tile: u32,
+};
+
 @group(1) @binding(0)
-var s_diffuse: sampler;
+var<uniform> tile_atlas: TileAtlas;
 @group(1) @binding(1)
+var s_diffuse: sampler;
+@group(1) @binding(2)
 var t_diffuse: texture_2d<f32>;
 
 struct VertexOutput {
@@ -30,18 +37,23 @@ fn unpack_u32_to_rgba(color: u32) -> vec4<f32> {
     );
 }
 
+fn unpack_u32_to_u16x2(packed: u32) -> vec2<u32> {
+    let width: u32 = u32((packed >> 16) & 0xFFFF);
+    let height: u32 = u32(packed & 0xFFFF);
+    return vec2(width, height);
+}
+
 @vertex
 fn vertex_main(
     @builtin(vertex_index) vertex_index: u32,
     @location(0) instance_position: vec2<i32>,
     @location(1) instance_scale: f32,
-    @location(2) instance_color: u32) -> VertexOutput {
-    var positions = array<vec2<f32>, 6>(
+    @location(2) instance_color: u32,
+    @location(3) instance_tile_idx: u32) -> VertexOutput {
+    var positions = array<vec2<f32>, 4>(
         vec2<f32>(-0.5, -0.5),
         vec2<f32>(0.5, -0.5),
         vec2<f32>(-0.5, 0.5),
-        vec2<f32>(-0.5, 0.5),
-        vec2<f32>(0.5, -0.5),
         vec2<f32>(0.5, 0.5),
     );
 
@@ -49,7 +61,16 @@ fn vertex_main(
     var pos = vec4<f32>(instance_scale * positions[vertex_index] + bitcast<vec2<f32>>(instance_position), 0.0, 1.0);
     output.position = shader_ctx.view_projection * pos;
     output.tint_color = unpack_u32_to_rgba(instance_color);
-    output.texture_position = 2. * (positions[vertex_index] + 0.5);
+
+    var tile_size = unpack_u32_to_u16x2(tile_atlas.tile);
+    var size = unpack_u32_to_u16x2(tile_atlas.size);
+
+    var tiles_per = size / tile_size;
+
+    var col = instance_tile_idx % tiles_per.x + u32(positions[vertex_index].x > 0);
+    var row = instance_tile_idx / tiles_per.y + u32(positions[vertex_index].y < 0);
+    var tex = vec2<f32>(tile_size) / vec2<f32>(size);
+    output.texture_position = tex * vec2(f32(col), f32(row));
     return output;
 }
 
