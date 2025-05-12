@@ -30,7 +30,7 @@ pub fn create_render_pipeline<'all>(
 ) -> Pipeline {
     let bindings = binding_layouts
         .into_iter()
-        .map(|layout| layout.layout.as_ref())
+        .map(|layout| &layout.layout)
         .collect::<Vec<_>>();
 
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

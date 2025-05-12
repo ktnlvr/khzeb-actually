@@ -5,19 +5,17 @@ pub mod buffer;
 pub mod camera;
 pub mod color;
 pub mod dirty;
-pub mod instance;
 pub mod pipeline;
 pub mod texture;
 
 use std::sync::Arc;
 
-use atlas::{TextureAtlas, TextureAtlasProperties};
-use batch::Batch;
+use atlas::TextureAtlas;
+use batch::{Batch, BatchInstance, BatchMetadata};
 use bindings::{create_binding, create_binding_layout, Binding};
 use buffer::{create_buffer, BufferHandle};
 use bytemuck::{Pod, Zeroable};
 use camera::Camera;
-use instance::BatchInstance;
 use pipeline::{create_render_pipeline, Pipeline};
 use pollster::FutureExt;
 use texture::Texture;
@@ -189,10 +187,16 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 
         let batch_shader = device.create_shader_module(wgpu::include_wgsl!("shaders/batch.wgsl"));
 
+        let batch_binding_layout = Batch::binding_layout(&device);
+
         let batch_pipeline = create_render_pipeline(
             &device,
             &batch_shader,
-            [&shader_ctx_binding_layout, &texture_binding_layout],
+            [
+                &shader_ctx_binding_layout,
+                &texture_binding_layout,
+                &batch_binding_layout,
+            ],
             config.format,
             [BatchInstance::vertex_buffer_layout()],
         );
@@ -291,6 +295,7 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
             render_pass.set_pipeline(&self.lookup.batch_pipeline);
 
             for batch in &self.batches {
+                render_pass.set_bind_group(2, batch.binding(), &[]);
                 render_pass.set_vertex_buffer(0, batch.buffer_slice());
                 render_pass.draw(0..4, 0..(batch.size() as u32));
             }
@@ -307,8 +312,8 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
 }
 
 impl<'surface, 'window> Renderer<'surface, 'window> {
-    pub fn create_batch(&mut self, max_size: usize) -> Arc<Batch> {
-        let batch = Batch::new(max_size, &self.device);
+    pub fn create_batch(&mut self, max_size: usize, metadata: BatchMetadata) -> Arc<Batch> {
+        let batch = Batch::new(&self.device, max_size, metadata);
         let arc_batch = Arc::new(batch);
         self.batches.push(arc_batch.clone());
         arc_batch

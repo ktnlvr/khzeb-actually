@@ -17,6 +17,16 @@ var s_diffuse: sampler;
 @group(1) @binding(2)
 var t_diffuse: texture_2d<f32>;
 
+struct BatchMetadata {
+    flags: u32,
+    origin: vec2<f32>,
+    scale: f32,
+    zorder: u32,
+}
+
+@group(2) @binding(0)
+var<uniform> batch_metadata: BatchMetadata;
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) tint_color: vec4<f32>,

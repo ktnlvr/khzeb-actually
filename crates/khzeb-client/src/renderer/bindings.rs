@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
 
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
@@ -7,7 +7,15 @@ use wgpu::{
 
 pub struct BindingLayout {
     entries: Vec<BindGroupLayoutEntry>,
-    pub layout: Arc<BindGroupLayout>,
+    pub layout: BindGroupLayout,
+}
+
+impl Deref for BindingLayout {
+    type Target = BindGroupLayout;
+
+    fn deref(&self) -> &Self::Target {
+        &self.layout
+    }
 }
 
 pub struct Binding {
@@ -49,10 +57,7 @@ pub fn create_binding_layout(
         entries: &entries,
     });
 
-    BindingLayout {
-        entries,
-        layout: Arc::new(layout),
-    }
+    BindingLayout { entries, layout }
 }
 
 pub fn create_binding<'resource>(
