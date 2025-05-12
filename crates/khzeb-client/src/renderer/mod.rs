@@ -3,6 +3,7 @@ pub mod batch;
 pub mod bindings;
 pub mod buffer;
 pub mod camera;
+pub mod color;
 pub mod dirty;
 pub mod instance;
 pub mod pipeline;

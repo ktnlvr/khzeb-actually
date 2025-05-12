@@ -1,5 +1,5 @@
 mod renderer;
-use renderer::{instance::BatchInstance, Renderer};
+use renderer::{color::Rgba, instance::BatchInstance, Renderer};
 
 use glam::Vec2;
 use winit::{
@@ -23,7 +23,7 @@ pub fn main() {
             .with_position_f32(Vec2::new(1., 1.))
             .with_texture_idx(4),
         BatchInstance::new()
-            .with_tint(0xFF00FFFF)
+            .with_tint(Rgba::new(255, 255, 0, 255))
             .with_texture_idx(5),
     ];
 

@@ -2,6 +2,8 @@ use bytemuck::{Pod, Zeroable};
 use glam::{IVec2, Vec2};
 use wgpu::{vertex_attr_array, BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
 
+use super::color::Rgba;
+
 #[derive(Zeroable, Clone, Copy)]
 #[repr(C)]
 union InstancePosition {
@@ -16,7 +18,7 @@ unsafe impl Pod for InstancePosition {}
 pub struct BatchInstance {
     position: InstancePosition,
     scale: f32,
-    tint: u32,
+    tint: Rgba,
     texture_index: u32,
 }
 
@@ -25,7 +27,7 @@ impl Default for BatchInstance {
         Self {
             position: InstancePosition { int: IVec2::ZERO },
             scale: 1.,
-            tint: 0xFFFFFFFF,
+            tint: Rgba::default(),
             texture_index: 0,
         }
     }
@@ -65,7 +67,7 @@ impl BatchInstance {
             .with_scale(scale)
     }
 
-    pub fn with_tint(self, tint: u32) -> Self {
+    pub fn with_tint(self, tint: Rgba) -> Self {
         Self { tint, ..self }
     }
 
