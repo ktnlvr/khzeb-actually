@@ -34,10 +34,10 @@ struct VertexOutput {
 };
 
 fn unpack_u32_to_rgba(color: u32) -> vec4<f32> {
-    let r: u32 = (color >> 24) & 0xFF;
-    let g: u32 = (color >> 16) & 0xFF;
-    let b: u32 = (color >> 8) & 0xFF;
-    let a: u32 = color & 0xFF;
+    var r: u32 = (color >> 24) & 0xFF;
+    var g: u32 = (color >> 16) & 0xFF;
+    var b: u32 = (color >> 8) & 0xFF;
+    var a: u32 = color & 0xFF;
 
     return vec4<f32>(
         f32(r) / 255.0,
@@ -48,8 +48,8 @@ fn unpack_u32_to_rgba(color: u32) -> vec4<f32> {
 }
 
 fn unpack_u32_to_u16x2(packed: u32) -> vec2<u32> {
-    let width: u32 = u32((packed >> 16) & 0xFFFF);
-    let height: u32 = u32(packed & 0xFFFF);
+    var width: u32 = u32((packed >> 16) & 0xFFFF);
+    var height: u32 = u32(packed & 0xFFFF);
     return vec2(width, height);
 }
 
@@ -60,7 +60,7 @@ fn vertex_main(
     @location(1) instance_scale: f32,
     @location(2) instance_color: u32,
     @location(3) instance_tile_idx: u32) -> VertexOutput {
-    let positions = array<vec2<f32>, 4>(
+    var positions = array<vec2<f32>, 4>(
         vec2<f32>(-0.5, -0.5),
         vec2<f32>(0.5, -0.5),
         vec2<f32>(-0.5, 0.5),
@@ -73,18 +73,18 @@ fn vertex_main(
     }
 
     var output: VertexOutput;
-    let pos = vec4<f32>(instance_scale * positions[vertex_index] + instance_pos, 0.0, 1.0);
+    var pos = vec4<f32>(instance_scale * positions[vertex_index] + instance_pos, 0.0, 1.0);
     output.position = shader_ctx.view_projection * pos;
     output.tint_color = unpack_u32_to_rgba(instance_color);
 
-    let tile_size = unpack_u32_to_u16x2(tile_atlas.tile);
-    let size = unpack_u32_to_u16x2(tile_atlas.size);
+    var tile_size = unpack_u32_to_u16x2(tile_atlas.tile);
+    var size = unpack_u32_to_u16x2(tile_atlas.size);
 
-    let tiles_per = size / tile_size;
+    var tiles_per = size / tile_size;
 
-    let col = instance_tile_idx % tiles_per.x + u32(positions[vertex_index].x > 0);
-    let row = instance_tile_idx / tiles_per.y + u32(positions[vertex_index].y < 0);
-    let tex = vec2<f32>(tile_size) / vec2<f32>(size);
+    var col = instance_tile_idx % tiles_per.x + u32(positions[vertex_index].x > 0);
+    var row = instance_tile_idx / tiles_per.y + u32(positions[vertex_index].y < 0);
+    var tex = vec2<f32>(tile_size) / vec2<f32>(size);
 
     output.texture_position = tex * vec2(f32(col), f32(row));
     return output;

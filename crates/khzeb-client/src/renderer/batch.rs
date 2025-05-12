@@ -1,14 +1,15 @@
 use std::sync::Mutex;
 
-use bitflags::bitflags;
+use bitflags::{bitflags, Flags};
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec2, Vec2};
 use lazy_static::lazy_static;
 use micromap::Map;
 use wgpu::{
-    vertex_attr_array, BindingResource, BindingType, Buffer, BufferAddress, BufferBindingType,
-    BufferDescriptor, BufferSlice, BufferUsages, Device, Queue, ShaderStages, VertexAttribute,
-    VertexBufferLayout, VertexStepMode,
+    util::{BufferInitDescriptor, DeviceExt},
+    vertex_attr_array, BindingType, Buffer, BufferAddress, BufferBindingType, BufferDescriptor,
+    BufferSlice, BufferUsages, Device, Queue, ShaderStages, VertexAttribute, VertexBufferLayout,
+    VertexStepMode,
 };
 
 use super::{
@@ -35,9 +36,45 @@ bitflags! {
 #[repr(C)]
 pub struct BatchMetadata {
     pub flags: BatchMetadataFlags,
+    _padding1: u32,
     pub origin: Vec2,
     pub scale: f32,
-    pub zorder: u32,
+    pub zorder: i32,
+    _padding2: u32,
+}
+
+impl Default for BatchMetadata {
+    fn default() -> Self {
+        Self {
+            flags: BatchMetadataFlags::empty(),
+            _padding1: 0,
+            origin: Vec2::ZERO,
+            scale: 1.,
+            zorder: 0,
+            _padding2: 0,
+        }
+    }
+}
+
+impl BatchMetadata {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_snap_to_grid(self) -> Self {
+        Self {
+            flags: self.flags | BatchMetadataFlags::SNAP_INSTANCES_TO_GRID,
+            ..self
+        }
+    }
+
+    pub fn with_origin(self, origin: Vec2) -> Self {
+        Self { origin, ..self }
+    }
+
+    pub fn with_scale(self, scale: f32) -> Self {
+        Self { scale, ..self }
+    }
 }
 
 struct BatchMutableState {
@@ -72,11 +109,10 @@ impl Batch {
             mapped_at_creation: false,
         });
 
-        let metadata_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Batch Metadata Buffer"),
-            size: size_of::<BatchMetadata>() as u64,
+        let metadata_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Metadata Batch Buffer"),
+            contents: bytemuck::cast_slice(&[metadata]),
             usage: BufferUsages::COPY_DST | BufferUsages::UNIFORM,
-            mapped_at_creation: false,
         });
 
         let instance_dirty_flag = DirtyFlags::new();
@@ -95,7 +131,7 @@ impl Batch {
                 instance_local_array,
 
                 metadata,
-                is_metadata_dirty: true,
+                is_metadata_dirty: false,
             }),
             binding,
         }
@@ -126,6 +162,7 @@ impl Batch {
                 0,
                 bytemuck::cast_slice(&[mutable.metadata]),
             );
+            mutable.is_metadata_dirty = false;
         }
 
         for marked in mutable.instance_dirty_flag.iter_marked() {

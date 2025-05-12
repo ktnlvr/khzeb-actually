@@ -20,15 +20,8 @@ pub fn main() {
 
     let mut renderer = Renderer::new(&window);
 
-    let arc_batch = renderer.create_batch(
-        0x100,
-        BatchMetadata {
-            flags: BatchMetadataFlags::SNAP_INSTANCES_TO_GRID,
-            origin: Vec2::new(1., 0.),
-            scale: 2.,
-            zorder: 0,
-        },
-    );
+    let arc_batch =
+        renderer.create_batch(0x100, BatchMetadata::new().with_origin(Vec2::new(1., 0.)));
 
     let batches = [
         BatchInstance::new()
