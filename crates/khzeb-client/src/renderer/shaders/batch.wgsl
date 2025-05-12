@@ -73,7 +73,8 @@ fn vertex_main(
     }
 
     var output: VertexOutput;
-    var pos = vec4<f32>(instance_scale * positions[vertex_index] + instance_pos, 0.0, 1.0);
+    var position = ((instance_scale * positions[vertex_index] + instance_pos) + batch_metadata.origin) * batch_metadata.scale;
+    var pos = vec4<f32>(position, 0.0, 1.0);
     output.position = shader_ctx.view_projection * pos;
     output.tint_color = unpack_u32_to_rgba(instance_color);
 
