@@ -29,6 +29,10 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 use khzeb::prelude::*;
 
+const SHADER_CONTEXT_BIND_GROUP_INDEX: u32 = 0;
+const TEXTURE_BIND_GROUP_INDEX: u32 = 1;
+const PRIMITIVE_BIND_GROUP_INDEX: u32 = 2;
+
 pub struct Renderer<'surface, 'window: 'surface> {
     surface: Surface<'surface>,
     device: Device,
@@ -290,12 +294,22 @@ impl<'surface, 'window> Renderer<'surface, 'window> {
                 timestamp_writes: None,
             });
 
-            render_pass.set_bind_group(0, &self.lookup.shader_context_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.lookup.texture_bind_group, &[]);
+            render_pass.set_bind_group(
+                SHADER_CONTEXT_BIND_GROUP_INDEX,
+                &self.lookup.shader_context_bind_group,
+                &[],
+            );
+
+            render_pass.set_bind_group(
+                TEXTURE_BIND_GROUP_INDEX,
+                &self.lookup.texture_bind_group,
+                &[],
+            );
+
             render_pass.set_pipeline(&self.lookup.batch_pipeline);
 
             for batch in &self.batches {
-                render_pass.set_bind_group(2, batch.binding(), &[]);
+                render_pass.set_bind_group(PRIMITIVE_BIND_GROUP_INDEX, batch.binding(), &[]);
                 render_pass.set_vertex_buffer(0, batch.buffer_slice());
                 render_pass.draw(0..4, 0..(batch.size() as u32));
             }
