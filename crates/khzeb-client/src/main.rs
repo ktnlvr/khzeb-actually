@@ -1,6 +1,6 @@
 mod renderer;
 use renderer::{
-    batch::{BatchInstance, BatchMetadata, BatchMetadataFlags},
+    batch::{BatchInstance, BatchMetadata},
     color::Rgba,
     Renderer,
 };

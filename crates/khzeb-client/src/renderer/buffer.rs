@@ -1,10 +1,10 @@
-use std::{marker::PhantomData, ops::Deref, sync::Arc};
+use std::{marker::PhantomData, ops::Deref};
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::{util::DeviceExt, Buffer, BufferUsages, Device};
 
 pub struct BufferHandle<T: Zeroable + Pod> {
-    pub buffer: Arc<Buffer>,
+    pub buffer: Buffer,
     _phantom_data: PhantomData<T>,
 }
 
@@ -25,7 +25,7 @@ pub fn create_buffer<T: Zeroable + Pod>(device: &Device, usage: BufferUsages) ->
     });
 
     BufferHandle {
-        buffer: Arc::new(buffer),
+        buffer,
         _phantom_data: Default::default(),
     }
 }
